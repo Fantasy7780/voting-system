@@ -13,6 +13,7 @@ coverage/
 coverage.json
 broadcast/
 ignition/deployments/
+types/
 
 # Type bindings 
 typechain/
