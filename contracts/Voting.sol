@@ -43,7 +43,7 @@ contract Voting {
 
     /// only forward
     function changeState(Phase newState) external onlyChair {
-        require(uint8(newState) > uint8(state), "Must move forward");
+        require(uint8(newState) == uint8(state) + 1, "Must move by one");
         Phase old = state;
         state = newState;
         emit StateChanged(old, newState);
