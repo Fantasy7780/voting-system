@@ -38,7 +38,7 @@ function isBytes32Hex(s) {
   return typeof s === 'string' && /^0x[0-9a-fA-F]{64}$/.test(s);
 }
 
-//
+
 function normalizeErr(e) {
   if (!e) return 'Unknown error';
   if (e.shortMessage) return e.shortMessage;
@@ -169,6 +169,18 @@ export default function Home() {
     args: [address],
     query: { enabled: !!addr && !!address },
   });
+  // deadlines
+  const { data: commitDl, refetch: refetchCommitDl } = useReadContract({
+    address: addr, abi, functionName: 'commitDeadline', query: { enabled: !!addr },
+  });
+  const { data: revealDl, refetch: refetchRevealDl } = useReadContract({
+    address: addr, abi, functionName: 'revealDeadline', query: { enabled: !!addr },
+  });
+  
+  const { data: winnersData, refetch: refetchWinners } = useReadContract({
+    address: addr, abi, functionName: 'winners',
+    query: { enabled: !!addr && Number(stateData) === 4 },
+  });
 
   // ui states
   const [phase, setPhase] = useState(0);
@@ -198,6 +210,10 @@ export default function Home() {
   // backup
   const [backupJson, setBackupJson] = useState('');
   const [importJson, setImportJson] = useState('');
+
+  // deadlines inputs (minutes from now)
+  const [commitMins, setCommitMins] = useState('');
+  const [revealMins, setRevealMins] = useState('');
 
   // compute commitment of current selection
   const computeCommitment = (index, saltHex) =>
@@ -229,7 +245,7 @@ export default function Home() {
       await Promise.all([
         refetchState?.(), refetchNames?.(), refetchReg?.(),
         refetchCom?.(), refetchRev?.(), refetchResults?.(), refetchChair?.(),
-        refetchVoter?.(),
+        refetchVoter?.(), refetchCommitDl?.(), refetchRevealDl?.(), refetchWinners?.(),
       ]);
     } catch {}
   };
@@ -248,7 +264,6 @@ export default function Home() {
     setErrorMsg('');
     try {
       await writeContractAsync({ address: addr, abi, functionName: 'changeState', args: [BigInt(nextPhase)] });
-      setPhase((p) => Math.max(p, Number(nextPhase)));
     } catch (e) { setErrorMsg(normalizeErr(e)); }
   };
 
@@ -257,7 +272,6 @@ export default function Home() {
     if (!registerAddr) { setErrorMsg('Address required.'); return; }
     try {
       await writeContractAsync({ address: addr, abi, functionName: 'register', args: [registerAddr] });
-      setRegistered((x) => x + 1);
       setRegisterAddr('');
     } catch (e) { setErrorMsg(normalizeErr(e)); }
   };
@@ -281,7 +295,6 @@ export default function Home() {
   const doCommit = async () => {
     setErrorMsg('');
 
-    // ensure salt 
     let s = salt;
     if (!isBytes32Hex(s)) {
       const stored = localStorage.getItem(
@@ -291,7 +304,6 @@ export default function Home() {
     }
     if (!isBytes32Hex(s)) { setErrorMsg('Missing or invalid salt (0x + 64 hex).'); return; }
 
-    // recompute commitment and save meta
     const localCommit = computeCommitment(selIndex, s);
     setCommitment(localCommit);
     saveCommitMeta({
@@ -305,14 +317,12 @@ export default function Home() {
 
     try {
       await writeContractAsync({ address: addr, abi, functionName: 'commitVote', args: [localCommit] });
-      setCommitted((x) => x + 1);
     } catch (e) { setErrorMsg(normalizeErr(e)); }
   };
 
   const doReveal = async () => {
     setErrorMsg('');
 
-    // prefer saved meta
     const meta = loadCommitMeta({ account: address, addr, chainId: chainId || chainIdEnv });
     let targetIndex = selIndex;
     let s = salt;
@@ -344,7 +354,6 @@ export default function Home() {
         functionName: 'revealVote',
         args: [BigInt(targetIndex), s],
       });
-      setRevealed((x) => x + 1);
     } catch (e) { setErrorMsg(normalizeErr(e)); }
   };
 
@@ -388,8 +397,38 @@ export default function Home() {
       if (!receipt.contractAddress) { setErrorMsg('Deploy failed.'); return; }
       setAddr(receipt.contractAddress);
       setAddrInput(receipt.contractAddress);
-      setPhase(0); setRegistered(0); setCommitted(0); setRevealed(0); setResults(null);
       setNewRoundText('');
+    } catch (e) { setErrorMsg(normalizeErr(e)); }
+  };
+
+  // deadlines actions
+  const doSetDeadlines = async () => {
+    setErrorMsg('');
+    const cm = Number(commitMins);
+    const rm = Number(revealMins);
+    if (!Number.isFinite(cm) || !Number.isFinite(rm) || cm <= 0 || rm <= 0) {
+      setErrorMsg('Minutes must be positive numbers.');
+      return;
+    }
+    const now = Math.floor(Date.now() / 1000);
+    const commitUntil = BigInt(now + Math.floor(cm * 60));
+    const revealUntil = BigInt(now + Math.floor(rm * 60));
+    if (Number(commitUntil) >= Number(revealUntil)) {
+      setErrorMsg('Commit must end before reveal.');
+      return;
+    }
+    try {
+      await writeContractAsync({
+        address: addr, abi, functionName: 'setDeadlines', args: [commitUntil, revealUntil],
+      });
+      setCommitMins(''); setRevealMins('');
+    } catch (e) { setErrorMsg(normalizeErr(e)); }
+  };
+
+  const doAdvanceIfExpired = async () => {
+    setErrorMsg('');
+    try {
+      await writeContractAsync({ address: addr, abi, functionName: 'advanceIfExpired', args: [] });
     } catch (e) { setErrorMsg(normalizeErr(e)); }
   };
 
@@ -427,7 +466,6 @@ export default function Home() {
       }
     }
     if (count === 0) { setErrorMsg('No valid items imported.'); return; }
-    // try to hydrate current UI from imported meta if it matches current addr/...
     const meta = loadCommitMeta({ account: address, addr, chainId: chainId || chainIdEnv });
     if (meta) {
       if (isBytes32Hex(meta.salt)) setSalt(meta.salt);
@@ -479,7 +517,7 @@ export default function Home() {
         <div style={{ marginTop: 6, fontSize: 13, color: '#555' }}>Active: {addr || '-'}</div>
       </section>
 
-      {/* new round /deploy */}
+      {/* new round (deploy) */}
       <section style={{ marginBottom: 12, borderTop: '1px solid #ddd', paddingTop: 10 }}>
         <b>New Round</b> <span style={{ fontSize: 12, color: '#666' }}>(deploy a new contract)</span>
         <div style={{ marginTop: 6 }}>
@@ -502,6 +540,8 @@ export default function Home() {
         <div>Phase: {PHASE[phase]} ({phase})</div>
         <div>Registered: {registered} | Committed: {committed} | Revealed: {revealed}</div>
         <div>Proposals: {names.join(' , ')}</div>
+        <div>Commit deadline: {commitDl ? new Date(Number(commitDl) * 1000).toLocaleString() : '-'}</div>
+        <div>Reveal deadline: {revealDl ? new Date(Number(revealDl) * 1000).toLocaleString() : '-'}</div>
       </section>
 
       {/* chairman ops */}
@@ -526,6 +566,37 @@ export default function Home() {
           />
           <button onClick={doRegister} disabled={isPending || isMining} style={{ marginLeft: 8 }}>
             register
+          </button>
+        </div>
+
+        {/* set deadlines during Registration */}
+        <div style={{ marginTop: 10, opacity: (phase === 1) ? 1 : 0.6 }}>
+          <div><b>Deadlines</b> (set during Registration)</div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 6 }}>
+            <input
+              value={commitMins}
+              onChange={(e) => setCommitMins(e.target.value)}
+              placeholder="commit minutes from now"
+              style={{ width: 200 }}
+              disabled={phase !== 1}
+            />
+            <input
+              value={revealMins}
+              onChange={(e) => setRevealMins(e.target.value)}
+              placeholder="reveal minutes from now"
+              style={{ width: 200 }}
+              disabled={phase !== 1}
+            />
+            <button onClick={doSetDeadlines} disabled={isPending || isMining || phase !== 1}>
+              setDeadlines
+            </button>
+          </div>
+        </div>
+
+        {/* anyone can call， succeeds only when expired */}
+        <div style={{ marginTop: 10 }}>
+          <button onClick={doAdvanceIfExpired} disabled={isPending || isMining}>
+            advanceIfExpired
           </button>
         </div>
 
@@ -592,6 +663,20 @@ export default function Home() {
           </ul>
         ) : (
           <div>Switch to Finalized to load results.</div>
+        )}
+
+        {/* winners */}
+        {Number(phase) === 4 && winnersData && names.length > 0 && (
+          <div style={{ marginTop: 8 }}>
+            <b>Winners</b>
+            <div>
+              {winnersData.length > 1 ? 'Tie: ' : 'Winner: '}
+              {winnersData.map((i, idx) => {
+                const ii = Number(i);
+                return <span key={idx}>{names[ii]}{idx < winnersData.length - 1 ? ', ' : ''}</span>;
+              })}
+            </div>
+          </div>
         )}
       </section>
 
