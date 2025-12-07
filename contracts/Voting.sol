@@ -12,7 +12,7 @@ contract Voting {
         bool committed;
         bool revealed;
         uint256 vote; // valid if revealed
-        bytes32 commitHash; // keccak256(index, salt, contract, chainId)
+        bytes32 commitHash; // keccak256(index, salt, voter, contract, chainId)
     }
 
     enum Phase {
@@ -57,6 +57,18 @@ contract Voting {
         _;
     }
 
+    modifier commitWindowOpen() {
+        require(commitDeadline != 0, "Commit deadline not set");
+        require(block.timestamp < commitDeadline, "Commit phase ended");
+        _;
+    }
+
+    modifier revealWindowOpen() {
+        require(revealDeadline != 0, "Reveal deadline not set");
+        require(block.timestamp < revealDeadline, "Reveal phase ended");
+        _;
+    }
+
     constructor(string[] memory names) {
         chairman = msg.sender;
         for (uint256 i = 0; i < names.length; ++i) {
@@ -67,6 +79,20 @@ contract Voting {
     /// only forward
     function changeState(Phase newState) external onlyChair {
         require(uint8(newState) == uint8(state) + 1, "Must move by one");
+
+        if (newState == Phase.Commit) {
+            require(proposals.length > 0, "No proposals");
+            require(commitDeadline != 0 && revealDeadline != 0, "Deadlines not set");
+            require(commitDeadline < revealDeadline, "order");
+            require(commitDeadline > block.timestamp, "commit in past");
+        } else if (newState == Phase.Reveal) {
+            require(commitDeadline != 0, "Commit deadline not set");
+            require(block.timestamp >= commitDeadline, "Commit still open");
+        } else if (newState == Phase.Finalized) {
+            require(revealDeadline != 0, "Reveal deadline not set");
+            require(block.timestamp >= revealDeadline, "Reveal still open");
+        }
+
         Phase old = state;
         state = newState;
         emit StateChanged(old, newState);
@@ -76,6 +102,7 @@ contract Voting {
     function register(
         address voterAddr
     ) external onlyChair inState(Phase.Registration) {
+        require(voterAddr != address(0), "Zero address");
         require(!voters[voterAddr].registered, "Already registered");
         voters[voterAddr].registered = true;
         registeredCount += 1;
@@ -149,6 +176,7 @@ contract Voting {
         Voter storage v = voters[msg.sender];
         require(v.registered, "Not registered");
         require(!v.committed, "Already committed");
+        require(commitment != bytes32(0), "Bad commitment");
         v.committed = true;
         v.commitHash = commitment;
         committedCount += 1;
@@ -158,7 +186,7 @@ contract Voting {
     function revealVote(
         uint256 proposalIndex,
         bytes32 salt
-    ) external inState(Phase.Reveal) {
+    ) external inState(Phase.Reveal) revealWindowOpen {
         Voter storage v = voters[msg.sender];
         require(v.registered, "Not registered");
         require(v.committed, "No commitment");
@@ -166,7 +194,7 @@ contract Voting {
         require(proposalIndex < proposals.length, "Bad index");
 
         bytes32 recomputed = keccak256(
-            abi.encodePacked(proposalIndex, salt, address(this), block.chainid)
+            abi.encode(proposalIndex, salt, msg.sender, address(this), block.chainid)
         );
         require(recomputed == v.commitHash, "Commit mismatch");
 
@@ -212,7 +240,7 @@ contract Voting {
     ) external view returns (bytes32) {
         return
             keccak256(
-                abi.encodePacked(index, salt, address(this), block.chainid)
+                abi.encode(index, salt, msg.sender, address(this), block.chainid)
             );
     }
 
@@ -238,6 +266,7 @@ contract Voting {
         inState(Phase.Finalized)
         returns (uint256 idx)
     {
+        require(proposals.length > 0, "No proposals");
         uint256 highest;
         for (uint256 i = 0; i < proposals.length; ++i) {
             if (proposals[i].voteCount > highest) {
@@ -278,6 +307,7 @@ contract Voting {
         inState(Phase.Finalized)
         returns (string memory)
     {
+        require(proposals.length > 0, "No proposals");
         return proposals[winningProposal()].name;
     }
 }
