@@ -172,7 +172,7 @@ contract Voting {
         }
     }
 
-    function commitVote(bytes32 commitment) external inState(Phase.Commit) {
+    function commitVote(bytes32 commitment) external inState(Phase.Commit) commitWindowOpen {
         Voter storage v = voters[msg.sender];
         require(v.registered, "Not registered");
         require(!v.committed, "Already committed");
