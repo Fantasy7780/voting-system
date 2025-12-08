@@ -1,17 +1,23 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+//Flow: Initialization -> Registration -> Commit -> Reveal -> Finalized.
 contract Voting {
+    // =============================================================
+    // Data Types
+    // =============================================================
+
     struct Proposal {
         string name;
         uint256 voteCount;
     }
 
+    // address 
     struct Voter {
         bool registered;
         bool committed;
         bool revealed;
-        uint256 vote; // valid if revealed
+        uint256 vote; // valid if revealed, index of proposal
         bytes32 commitHash; // keccak256(index, salt, voter, contract, chainId)
     }
 
@@ -23,11 +29,15 @@ contract Voting {
         Finalized
     }
 
-    address public chairman;
-    Phase public state = Phase.Initialization;
+    // =============================================================
+    // State Variables
+    // =============================================================
+
+    address public chairperson;
+    Phase public state = Phase.Initialization; // current state
 
     mapping(address => Voter) public voters;
-    address[] private _voterAddrs;
+    address[] private _voterAddrs; // all registered addresses
     Proposal[] public proposals;
 
     uint256 public registeredCount;
@@ -37,7 +47,13 @@ contract Voting {
     uint256 public commitDeadline;
     uint256 public revealDeadline;
 
+    // =============================================================
+    // Events
+    // =============================================================
+
     event StateChanged(Phase from, Phase to);
+    event AutoAdvanced(Phase from, Phase to);
+
     event VoterRegistered(address voter);
     event Committed(address voter, bytes32 commitment);
     event Revealed(address voter, uint256 proposalIndex);
@@ -46,12 +62,16 @@ contract Voting {
     event ProposalRenamed(uint256 index, string oldName, string newName);
 
     event DeadlinesSet(uint256 commitUntil, uint256 revealUntil);
-    event AutoAdvanced(Phase from, Phase to);
+
+    // =============================================================
+    // Modifiers
+    // =============================================================
 
     modifier onlyChair() {
-        require(msg.sender == chairman, "Only chairman");
+        require(msg.sender == chairperson, "Only chairperson");
         _;
     }
+
     modifier inState(Phase p) {
         require(state == p, "Wrong phase");
         _;
@@ -59,44 +79,95 @@ contract Voting {
 
     modifier commitWindowOpen() {
         require(commitDeadline != 0, "Commit deadline not set");
-        require(block.timestamp < commitDeadline, "Commit phase ended");
+        require(block.timestamp <= commitDeadline, "Commit phase ended");
         _;
     }
 
     modifier revealWindowOpen() {
         require(revealDeadline != 0, "Reveal deadline not set");
-        require(block.timestamp < revealDeadline, "Reveal phase ended");
+        require(block.timestamp <= revealDeadline, "Reveal phase ended");
         _;
     }
 
+    // =============================================================
+    // Constructor
+    // =============================================================
+
+    // an initial list of proposal names
     constructor(string[] memory names) {
-        chairman = msg.sender;
+        chairperson = msg.sender;// the chosen one to be chairperson
         for (uint256 i = 0; i < names.length; ++i) {
             proposals.push(Proposal(names[i], 0));
         }
     }
 
+    // =============================================================
+    // State Control
+    // =============================================================
+
     /// only forward
-    function changeState(Phase newState) external onlyChair {
+    function changeState(Phase newState) 
+        external 
+        onlyChair 
+    {
         require(uint8(newState) == uint8(state) + 1, "Must move by one");
 
         if (newState == Phase.Commit) {
             require(proposals.length > 0, "No proposals");
             require(commitDeadline != 0 && revealDeadline != 0, "Deadlines not set");
-            require(commitDeadline < revealDeadline, "order");
-            require(commitDeadline > block.timestamp, "commit in past");
+            require(commitDeadline < revealDeadline, "Invalid deadline order");
+            require(commitDeadline > block.timestamp, "Commit deadline in past");
         } else if (newState == Phase.Reveal) {
             require(commitDeadline != 0, "Commit deadline not set");
-            require(block.timestamp >= commitDeadline, "Commit still open");
+            require(block.timestamp > commitDeadline, "Commit still open");
         } else if (newState == Phase.Finalized) {
             require(revealDeadline != 0, "Reveal deadline not set");
-            require(block.timestamp >= revealDeadline, "Reveal still open");
+            require(block.timestamp > revealDeadline, "Reveal still open");
         }
 
         Phase old = state;
         state = newState;
-        emit StateChanged(old, newState);
+
+        emit StateChanged(old, newState);// write it to log
     }
+
+    // advance phase automatically when deadlines are reached
+    function advanceIfExpired() 
+        external 
+    {
+        if (state == Phase.Commit) {
+            require(
+                commitDeadline != 0 && block.timestamp > commitDeadline,
+                "Not expired"
+            );
+
+            Phase old = state;
+            state = Phase.Reveal;
+            
+            emit AutoAdvanced(old, state);// not sure if both emits are needed
+            emit StateChanged(old, state);
+
+        } else if (state == Phase.Reveal) {
+            require(
+                revealDeadline != 0 && block.timestamp > revealDeadline,
+                "Not expired"
+            );
+
+            Phase old2 = state;
+            state = Phase.Finalized;
+            
+            emit AutoAdvanced(old2, state);
+            emit StateChanged(old2, state);
+        
+        } else {
+            revert("No auto-advance");
+        }
+    }
+
+
+    // =============================================================
+    // Registration
+    // =============================================================
 
     // registration
     function register(
@@ -116,6 +187,7 @@ contract Voting {
             state == Phase.Initialization || state == Phase.Registration,
             "Frozen"
         );
+        require(bytes(name).length > 0, "Empty name");
         proposals.push(Proposal(name, 0));
         emit ProposalAdded(proposals.length - 1, name);
     }
@@ -129,6 +201,7 @@ contract Voting {
             "Frozen"
         );
         require(idx < proposals.length, "Bad index");
+        require(bytes(newName).length > 0, "Empty name");
         string memory old = proposals[idx].name;
         proposals[idx].name = newName;
         emit ProposalRenamed(idx, old, newName);
@@ -139,38 +212,16 @@ contract Voting {
         uint256 commitUntil,
         uint256 revealUntil
     ) external onlyChair inState(Phase.Registration) {
-        require(commitUntil > block.timestamp, "commit in past");
-        require(revealUntil > block.timestamp, "reveal in past");
-        require(commitUntil < revealUntil, "order");
+        require(commitUntil > block.timestamp, "Commit deadline in past");
+        require(revealUntil > block.timestamp, "Reveal deadline in past");
+        require(commitUntil < revealUntil, "Invalid deadline order");
         commitDeadline = commitUntil;
         revealDeadline = revealUntil;
         emit DeadlinesSet(commitUntil, revealUntil);
     }
 
-    /// advance phase automatically when deadlines are reached
-    function advanceIfExpired() external {
-        if (state == Phase.Commit) {
-            require(
-                commitDeadline != 0 && block.timestamp >= commitDeadline,
-                "Not expired"
-            );
-            Phase old = state;
-            state = Phase.Reveal;
-            emit AutoAdvanced(old, state);
-            emit StateChanged(old, state);
-        } else if (state == Phase.Reveal) {
-            require(
-                revealDeadline != 0 && block.timestamp >= revealDeadline,
-                "Not expired"
-            );
-            Phase old2 = state;
-            state = Phase.Finalized;
-            emit AutoAdvanced(old2, state);
-            emit StateChanged(old2, state);
-        } else {
-            revert("No auto-advance");
-        }
-    }
+   
+
 
     function commitVote(bytes32 commitment) external inState(Phase.Commit) commitWindowOpen {
         Voter storage v = voters[msg.sender];
@@ -260,22 +311,6 @@ contract Voting {
         }
     }
 
-    function winningProposal()
-        public
-        view
-        inState(Phase.Finalized)
-        returns (uint256 idx)
-    {
-        require(proposals.length > 0, "No proposals");
-        uint256 highest;
-        for (uint256 i = 0; i < proposals.length; ++i) {
-            if (proposals[i].voteCount > highest) {
-                highest = proposals[i].voteCount;
-                idx = i;
-            }
-        }
-    }
-
     /// return all winner indices in case of ties
     function winners()
         external
@@ -301,13 +336,4 @@ contract Voting {
         }
     }
 
-    function winnerName()
-        external
-        view
-        inState(Phase.Finalized)
-        returns (string memory)
-    {
-        require(proposals.length > 0, "No proposals");
-        return proposals[winningProposal()].name;
-    }
 }
