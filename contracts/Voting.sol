@@ -169,76 +169,114 @@ contract Voting {
     // Registration
     // =============================================================
 
-    // registration
-    function register(
-        address voterAddr
-    ) external onlyChair inState(Phase.Registration) {
+    // register a voter address during the Registration phase
+    function register(address voterAddr) 
+        external 
+        onlyChair 
+        inState(Phase.Registration) 
+    {
         require(voterAddr != address(0), "Zero address");
         require(!voters[voterAddr].registered, "Already registered");
+
         voters[voterAddr].registered = true;
         registeredCount += 1;
         _voterAddrs.push(voterAddr);
+
         emit VoterRegistered(voterAddr);
     }
 
-    // add a proposal
-    function addProposal(string calldata name) external onlyChair {
+    // =============================================================
+    // Proposals
+    // =============================================================
+    
+    // add a proposal during Initialization or Registration
+    function addProposal(string calldata name) 
+        external 
+        onlyChair 
+    {
         require(
             state == Phase.Initialization || state == Phase.Registration,
-            "Frozen"
-        );
+            "Proposals are frozen"
+        );// after Initialization or Registration freeze all proposals
         require(bytes(name).length > 0, "Empty name");
+
         proposals.push(Proposal(name, 0));
+        
         emit ProposalAdded(proposals.length - 1, name);
     }
 
-    function renameProposal(
-        uint256 idx,
-        string calldata newName
-    ) external onlyChair {
+    // find proposal with index idx and rename it newName
+    function renameProposal(uint256 idx, string calldata newName) 
+        external 
+        onlyChair 
+    {
         require(
             state == Phase.Initialization || state == Phase.Registration,
-            "Frozen"
-        );
+            "Proposals are frozen"
+        );// after Initialization or Registration freeze all proposals
         require(idx < proposals.length, "Bad index");
         require(bytes(newName).length > 0, "Empty name");
+
         string memory old = proposals[idx].name;
         proposals[idx].name = newName;
+
         emit ProposalRenamed(idx, old, newName);
     }
 
-    // deadlines
-    function setDeadlines(
-        uint256 commitUntil,
-        uint256 revealUntil
-    ) external onlyChair inState(Phase.Registration) {
+    // =============================================================
+    // Deadlines
+    // =============================================================
+    
+    // set commit and reveal deadlines during Registration
+    function setDeadlines(uint256 commitUntil, uint256 revealUntil) 
+        external 
+        onlyChair 
+        inState(Phase.Registration) 
+    {
         require(commitUntil > block.timestamp, "Commit deadline in past");
         require(revealUntil > block.timestamp, "Reveal deadline in past");
-        require(commitUntil < revealUntil, "Invalid deadline order");
+        require(commitUntil < revealUntil, "Invalid deadline order"); // commitUntil must be before revealUntil.
+
         commitDeadline = commitUntil;
         revealDeadline = revealUntil;
+
         emit DeadlinesSet(commitUntil, revealUntil);
     }
 
-   
+    // =============================================================
+    // Voting: Commit
+    // =============================================================
 
-
-    function commitVote(bytes32 commitment) external inState(Phase.Commit) commitWindowOpen {
+    //hash is stored and later checked in revealVote
+    function commitVote(bytes32 commitment) 
+        external 
+        inState(Phase.Commit) 
+        commitWindowOpen 
+    {
         Voter storage v = voters[msg.sender];
+
         require(v.registered, "Not registered");
         require(!v.committed, "Already committed");
         require(commitment != bytes32(0), "Bad commitment");
+
         v.committed = true;
         v.commitHash = commitment;
         committedCount += 1;
+
         emit Committed(msg.sender, commitment);
     }
 
-    function revealVote(
-        uint256 proposalIndex,
-        bytes32 salt
-    ) external inState(Phase.Reveal) revealWindowOpen {
+    // =============================================================
+    // Voting: Reveal
+    // =============================================================
+
+    function revealVote(uint256 proposalIndex, bytes32 salt) 
+        external 
+        inState(Phase.Reveal)  
+        revealWindowOpen 
+    {
         Voter storage v = voters[msg.sender];
+
         require(v.registered, "Not registered");
         require(v.committed, "No commitment");
         require(!v.revealed, "Already revealed");
@@ -246,25 +284,33 @@ contract Voting {
 
         bytes32 recomputed = keccak256(
             abi.encode(proposalIndex, salt, msg.sender, address(this), block.chainid)
-        );
+        );// compute and compare
         require(recomputed == v.commitHash, "Commit mismatch");
 
         v.revealed = true;
         v.vote = proposalIndex;
+
         proposals[proposalIndex].voteCount += 1;
         revealedCount += 1;
+
         emit Revealed(msg.sender, proposalIndex);
     }
 
-    // views
+    // =============================================================
+    // Views: Voters
+    // =============================================================
 
-    function voterAddresses() external view returns (address[] memory) {
+    // return the list of registered voter addresses
+    function voterAddresses() 
+        external 
+        view 
+        returns (address[] memory) 
+    {
         return _voterAddrs;
     }
 
-    function getVoter(
-        address a
-    )
+    // return voter status and stored data for an address
+    function getVoter(address a)
         external
         view
         returns (
@@ -279,23 +325,51 @@ contract Voting {
         return (v.registered, v.committed, v.revealed, v.vote, v.commitHash);
     }
 
-    function proposalNames() external view returns (string[] memory names) {
+    // =============================================================
+    // Views: Proposals
+    // =============================================================
+
+    // return all proposal names
+    function proposalNames() 
+        external 
+        view 
+        returns (string[] memory names) 
+    {
         uint256 len = proposals.length;
         names = new string[](len);
-        for (uint256 i = 0; i < len; ++i) names[i] = proposals[i].name;
+
+        for (uint256 i = 0; i < len; ++i) 
+        {
+            names[i] = proposals[i].name;
+        }
     }
 
-    function computeCommitment(
-        uint256 index,
-        bytes32 salt
-    ) external view returns (bytes32) {
-        return
-            keccak256(
-                abi.encode(index, salt, msg.sender, address(this), block.chainid)
-            );
+    // =============================================================
+    // Helpers
+    // =============================================================
+
+    // compute a commitment hash for the caller
+    function computeCommitment(uint256 index,bytes32 salt) 
+        external 
+        view 
+        returns (bytes32) 
+    {
+        return keccak256(
+            abi.encode(
+                index,
+                salt,
+                msg.sender,
+                address(this),
+                block.chainid
+            )
+        );
     }
 
-    // tie handling
+    // =============================================================
+    // Results
+    // =============================================================
+
+    // return all proposal names and vote counts
     function results()
         external
         view
@@ -305,7 +379,9 @@ contract Voting {
         uint256 len = proposals.length;
         names = new string[](len);
         votes = new uint256[](len);
-        for (uint256 i = 0; i < len; ++i) {
+
+        for (uint256 i = 0; i < len; ++i) 
+        {
             names[i] = proposals[i].name;
             votes[i] = proposals[i].voteCount;
         }
@@ -320,8 +396,10 @@ contract Voting {
     {
         uint256 hi;
         uint256 n;
-        for (uint256 i = 0; i < proposals.length; ++i) {
+        for (uint256 i = 0; i < proposals.length; ++i) 
+        {
             uint256 v = proposals[i].voteCount;
+
             if (v > hi) {
                 hi = v;
                 n = 1;
@@ -329,11 +407,16 @@ contract Voting {
                 n++;
             }
         }
+
         idxs = new uint256[](n);
         uint256 k;
-        for (uint256 i = 0; i < proposals.length; ++i) {
-            if (proposals[i].voteCount == hi) idxs[k++] = i;
+
+        for (uint256 i = 0; i < proposals.length; ++i) 
+        {
+            if (proposals[i].voteCount == hi) 
+            {
+                idxs[k++] = i;
+            }
         }
     }
-
 }
