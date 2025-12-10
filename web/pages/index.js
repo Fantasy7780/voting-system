@@ -9,7 +9,7 @@ import {
   useWalletClient,
   usePublicClient,
 } from 'wagmi';
-import { keccak256, encodePacked } from 'viem';
+import { keccak256, encodeAbiParameters } from 'viem';
 import votingArtifact from '@/abi/Voting.json';
 
 const abi = votingArtifact.abi;
@@ -84,7 +84,7 @@ function collectCurrent({ account, addr, chainId }) {
   const vMeta = localStorage.getItem(kMeta);
   if (vMeta) {
     try { items.push({ type: 'meta', key: kMeta, value: JSON.parse(vMeta) }); }
-    catch { /* ignore */ }
+    catch {}
   }
   return { version: 1, items };
 }
@@ -97,7 +97,7 @@ function collectAll() {
     else if (k.startsWith('commitmeta:')) {
       const raw = localStorage.getItem(k);
       try { items.push({ type: 'meta', key: k, value: JSON.parse(raw || 'null') }); }
-      catch { /* ignore */ }
+      catch {}
     }
   }
   return { version: 1, items };
@@ -159,15 +159,11 @@ export default function Home() {
     address: addr, abi, functionName: 'results', query: { enabled: !!addr && Number(stateData) === 4 },
   });
   const { data: chairData, refetch: refetchChair } = useReadContract({
-    address: addr, abi, functionName: 'chairman', query: { enabled: !!addr },
+    address: addr, abi, functionName: 'chairperson', query: { enabled: !!addr },
   });
   // on-chain voter snapshot (registered, committed, revealed, vote, commitHash)
   const { data: voterData, refetch: refetchVoter } = useReadContract({
-    address: addr,
-    abi,
-    functionName: 'voters',
-    args: [address],
-    query: { enabled: !!addr && !!address },
+    address: addr, abi, functionName: 'voters', args: [address], query: { enabled: !!addr && !!address },
   });
   // deadlines
   const { data: commitDl, refetch: refetchCommitDl } = useReadContract({
@@ -176,7 +172,6 @@ export default function Home() {
   const { data: revealDl, refetch: refetchRevealDl } = useReadContract({
     address: addr, abi, functionName: 'revealDeadline', query: { enabled: !!addr },
   });
-  
   const { data: winnersData, refetch: refetchWinners } = useReadContract({
     address: addr, abi, functionName: 'winners',
     query: { enabled: !!addr && Number(stateData) === 4 },
@@ -195,8 +190,6 @@ export default function Home() {
   const [salt, setSalt] = useState('');
   const [commitment, setCommitment] = useState('');
   const [nextPhase, setNextPhase] = useState(1);
-
-  // register voter input
   const [registerAddr, setRegisterAddr] = useState('');
 
   // proposal management inputs
@@ -211,18 +204,31 @@ export default function Home() {
   const [backupJson, setBackupJson] = useState('');
   const [importJson, setImportJson] = useState('');
 
-  // deadlines inputs (minutes from now)
+  /** deadlines inputs (minutes from now) */
   const [commitMins, setCommitMins] = useState('');
   const [revealMins, setRevealMins] = useState('');
 
-  // compute commitment of current selection
-  const computeCommitment = (index, saltHex) =>
-    keccak256(
-      encodePacked(
-        ['uint256', 'bytes32', 'address', 'uint256'],
-        [BigInt(index), saltHex, addr, BigInt(chainId || chainIdEnv)],
-      ),
+  /** compute commitment: keccak256( abi.encode(index, salt, voter, contract, chainId) ) */
+  const computeCommitment = (index, saltHex) => {
+    if (!address) throw new Error('Connect wallet first');
+    const encoded = encodeAbiParameters(
+      [
+        { type: 'uint256' },
+        { type: 'bytes32' },
+        { type: 'address' }, // voter
+        { type: 'address' }, // contract
+        { type: 'uint256' }  // chainId
+      ],
+      [
+        BigInt(index),
+        saltHex,
+        address,
+        addr,
+        BigInt(chainId || chainIdEnv)
+      ]
     );
+    return keccak256(encoded);
+  };
 
   // UI
   useEffect(() => {
@@ -239,7 +245,7 @@ export default function Home() {
     }
   }, [stateData, namesData, regData, comData, revData, resultsData]);
 
-  // refresh all reads
+  /** refresh all reads */
   const refreshAll = async () => {
     try {
       await Promise.all([
@@ -250,16 +256,13 @@ export default function Home() {
     } catch {}
   };
 
-  // auto refresh on tx
-  useEffect(() => { if (txOK) refreshAll(); }, [txOK]); 
-  // refresh on addr switch
-  useEffect(() => { if (addr) refreshAll(); }, [addr]); 
+  useEffect(() => { if (txOK) refreshAll(); }, [txOK]);
+  useEffect(() => { if (addr) refreshAll(); }, [addr]);
 
-  // log debug values
   useEffect(() => { if (salt) console.log('[debug] salt:', salt); }, [salt]);
   useEffect(() => { if (commitment) console.log('[debug] commitment:', commitment); }, [commitment]);
 
-  // actions
+  /** actions */
   const doChangeState = async () => {
     setErrorMsg('');
     try {
@@ -289,7 +292,9 @@ export default function Home() {
   const doCompute = () => {
     setErrorMsg('');
     if (!isBytes32Hex(salt)) { setErrorMsg('Salt must be 0x + 64 hex.'); return; }
-    setCommitment(computeCommitment(selIndex, salt));
+    try {
+      setCommitment(computeCommitment(selIndex, salt));
+    } catch (e) { setErrorMsg(normalizeErr(e)); }
   };
 
   const doCommit = async () => {
@@ -304,7 +309,10 @@ export default function Home() {
     }
     if (!isBytes32Hex(s)) { setErrorMsg('Missing or invalid salt (0x + 64 hex).'); return; }
 
-    const localCommit = computeCommitment(selIndex, s);
+    let localCommit = '';
+    try {
+      localCommit = computeCommitment(selIndex, s);
+    } catch (e) { setErrorMsg(normalizeErr(e)); return; }
     setCommitment(localCommit);
     saveCommitMeta({
       account: address,
@@ -536,7 +544,7 @@ export default function Home() {
       {/* status */}
       <section style={{ marginBottom: 12 }}>
         <b>Status</b>
-        <div>Chairman: {chairData || '-'}</div>
+        <div>Chairperson: {chairData || '-'}</div>
         <div>Phase: {PHASE[phase]} ({phase})</div>
         <div>Registered: {registered} | Committed: {committed} | Revealed: {revealed}</div>
         <div>Proposals: {names.join(' , ')}</div>
@@ -544,9 +552,9 @@ export default function Home() {
         <div>Reveal deadline: {revealDl ? new Date(Number(revealDl) * 1000).toLocaleString() : '-'}</div>
       </section>
 
-      {/* chairman ops */}
+      {/* chairperson ops */}
       <section style={{ marginBottom: 12, borderTop: '1px solid #ddd', paddingTop: 10 }}>
-        <b>Chairman Ops</b>
+        <b>Chairperson Ops</b>
 
         <div style={{ marginTop: 6 }}>
           next phase (1-Registration / 2-Commit / 3-Reveal / 4-Finalized):&nbsp;
@@ -687,18 +695,34 @@ export default function Home() {
           <div>Salt (current input): {salt || '-'}</div>
           <div>Commitment (current input): {commitment || '-'}</div>
           {(() => {
-            const ok = isBytes32Hex(salt);
-            const recomputed = ok ? keccak256(encodePacked(
-              ['uint256','bytes32','address','uint256'],
-              [BigInt(selIndex), salt, addr, BigInt(chainId || chainIdEnv)],
-            )) : '';
+            const ok = isBytes32Hex(salt) && address && addr;
+            const recomputed = ok ? keccak256(
+              encodeAbiParameters(
+                [
+                  { type: 'uint256' },
+                  { type: 'bytes32' },
+                  { type: 'address' },
+                  { type: 'address' },
+                  { type: 'uint256' }
+                ],
+                [BigInt(selIndex), salt, address, addr, BigInt(chainId || chainIdEnv)]
+              )
+            ) : '';
             const onchain = voterData && voterData.length >= 5 ? voterData[4] : '';
             const meta = loadCommitMeta({ account: address, addr, chainId: chainId || chainIdEnv });
-            const metaRecomputed = (meta && isBytes32Hex(meta.salt))
-              ? keccak256(encodePacked(
-                  ['uint256','bytes32','address','uint256'],
-                  [BigInt(meta.index ?? 0), meta.salt, addr, BigInt(chainId || chainIdEnv)],
-                ))
+            const metaRecomputed = (meta && isBytes32Hex(meta.salt) && addr)
+              ? keccak256(
+                  encodeAbiParameters(
+                    [
+                      { type: 'uint256' },
+                      { type: 'bytes32' },
+                      { type: 'address' },
+                      { type: 'address' },
+                      { type: 'uint256' }
+                    ],
+                    [BigInt(meta.index ?? 0), meta.salt, address, addr, BigInt(chainId || chainIdEnv)]
+                  )
+                )
               : '';
             const matchInput = recomputed && onchain
               ? (recomputed.toLowerCase() === onchain.toLowerCase() ? 'YES' : 'NO')
