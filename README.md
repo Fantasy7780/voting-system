@@ -1,57 +1,96 @@
-# Sample Hardhat 3 Beta Project (`mocha` and `ethers`)
+# Quick Start
 
-This project showcases a Hardhat 3 Beta project using `mocha` for tests and the `ethers` library for Ethereum interactions.
+## Install
 
-To learn more about the Hardhat 3 Beta, please visit the [Getting Started guide](https://hardhat.org/docs/getting-started#getting-started-with-hardhat-3). To share your feedback, join our [Hardhat 3 Beta](https://hardhat.org/hardhat3-beta-telegram-group) Telegram group or [open an issue](https://github.com/NomicFoundation/hardhat/issues/new) in our GitHub issue tracker.
+```bash
+cd voting-system
 
-## Project Overview
+# Back-end Hardhat 3, Ethers 6
+npm i
 
-This example project includes:
-
-- A simple Hardhat configuration file.
-- Foundry-compatible Solidity unit tests.
-- TypeScript integration tests using `mocha` and ethers.js
-- Examples demonstrating how to connect to different types of networks, including locally simulating OP mainnet.
-
-## Usage
-
-### Running Tests
-
-To run all the tests in the project, execute the following command:
-
-```shell
-npx hardhat test
+# Front-end Next.js
+cd web && npm i
 ```
 
-You can also selectively run the Solidity or `mocha` tests:
+## Deploy
 
-```shell
-npx hardhat test solidity
-npx hardhat test mocha
+Open two terminals.
+
+**A. Local node**
+
+Run:
+
+```bash
+cd voting-system
+npm run node
 ```
 
-### Make a deployment to Sepolia
+**B. Compile & deploy**
 
-This project includes an example Ignition module to deploy the contract. You can deploy this module to a locally simulated chain or to Sepolia.
+Run:
 
-To run the deployment to a local chain:
-
-```shell
-npx hardhat ignition deploy ignition/modules/Counter.ts
+```bash
+cd voting-system
+npm run compile
+npm run deploy:local
+# Note the deployed contract address
 ```
 
-To run the deployment to Sepolia, you need an account with funds to send the transaction. The provided Hardhat configuration includes a Configuration Variable called `SEPOLIA_PRIVATE_KEY`, which you can use to set the private key of the account you want to use.
+## Front-end
 
-You can set the `SEPOLIA_PRIVATE_KEY` variable using the `hardhat-keystore` plugin or by setting it as an environment variable.
+Create `web/.env.local`:
 
-To set the `SEPOLIA_PRIVATE_KEY` config variable using `hardhat-keystore`:
-
-```shell
-npx hardhat keystore set SEPOLIA_PRIVATE_KEY
+```
+NEXT_PUBLIC_CONTRACT_ADDRESS=<deployed-address>
+NEXT_PUBLIC_CHAIN_ID=31337
 ```
 
-After setting the variable, you can run the deployment with the Sepolia network:
+Run:
 
-```shell
-npx hardhat ignition deploy --network sepolia ignition/modules/Counter.ts
+```bash
+cd voting-system/web
+npm run dev
 ```
+
+## 4) Tests
+
+Run:
+
+```bash
+cd voting-system
+
+npm run test
+# 
+# npx hardhat test --coverage
+# npx hardhat test --gas-stats
+```
+
+## 5) Export Block
+
+Run:
+
+```bash
+cd voting-system
+npm i ethers@6
+```
+
+```bash
+# latest block
+
+node scripts/export-block-json.mjs latest
+```
+
+```bash
+# specific block number
+
+node scripts/export-block-json.mjs 15
+
+```
+
+
+Output: `scripts/out/`
+
+
+**Notes**
+
+* 
