@@ -6,6 +6,9 @@ npm-debug.log*
 dist/
 bundle/
 
+# Script exports
+/scripts/out/
+
 # Hardhat artifacts & caches
 artifacts/
 cache/
