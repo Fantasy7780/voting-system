@@ -119,10 +119,10 @@ contract Voting {
             require(commitDeadline > block.timestamp, "Commit deadline in past");
         } else if (newState == Phase.Reveal) {
             require(commitDeadline != 0, "Commit deadline not set");
-            require(block.timestamp > commitDeadline, "Commit still open");
+            require(block.timestamp > commitDeadline || committedCount == registeredCount, "Commit still open");
         } else if (newState == Phase.Finalized) {
             require(revealDeadline != 0, "Reveal deadline not set");
-            require(block.timestamp > revealDeadline, "Reveal still open");
+            require(block.timestamp > revealDeadline || revealedCount == committedCount, "Reveal still open");
         }
 
         Phase old = state;
