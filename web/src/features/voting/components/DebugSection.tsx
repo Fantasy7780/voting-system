@@ -6,7 +6,9 @@ import { computeCommitment, isBytes32Hex } from '../utils';
 import { loadCommitMeta } from '../storage';
 
 export function DebugSection() {
-  const { snapshot, actions, addr, address, selIndex, salt, commitment, activeChainId } = useVotingCtx();
+  const { snapshot, actions, addr, address, selIndex, salt, commitment, activeChainId, devMode } = useVotingCtx();
+
+  if (!devMode) return null;
 
   const ok = !!addr && !!address && isBytes32Hex(salt);
 

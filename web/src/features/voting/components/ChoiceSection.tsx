@@ -4,7 +4,9 @@ import { Section } from './Section';
 import { useVotingCtx } from '../VotingContext';
 
 export function ChoiceSection() {
-  const { snapshot, selIndex, setSelIndex } = useVotingCtx();
+  const { snapshot, selIndex, setSelIndex, devMode, isChair } = useVotingCtx();
+
+  if (!devMode && isChair) return null;
 
   return (
     <Section title="Your Choice">

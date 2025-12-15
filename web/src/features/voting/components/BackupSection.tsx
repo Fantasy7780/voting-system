@@ -4,7 +4,9 @@ import { Section } from './Section';
 import { useVotingCtx } from '../VotingContext';
 
 export function BackupSection() {
-  const { snapshot, actions, backupJson, setBackupJson, importJson, setImportJson } = useVotingCtx();
+  const { snapshot, actions, backupJson, setBackupJson, importJson, setImportJson, devMode } = useVotingCtx();
+
+  if (!devMode) return null;
 
   return (
     <Section title="Backup / Restore">

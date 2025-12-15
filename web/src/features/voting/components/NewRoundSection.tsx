@@ -4,7 +4,10 @@ import { Section } from './Section';
 import { useVotingCtx } from '../VotingContext';
 
 export function NewRoundSection() {
-  const { isConnected, newRoundText, setNewRoundText, actions, setAddrDirect, setAddrInput } = useVotingCtx();
+  const { devMode, isConnected, newRoundText, setNewRoundText, actions, setAddrDirect, setAddrInput } =
+    useVotingCtx();
+
+  if (!devMode) return null;
 
   return (
     <Section title="New Round">

@@ -7,6 +7,8 @@ export function ChairOpsSection() {
   const {
     snapshot,
     actions,
+    devMode,
+    isChair,
     nextPhase,
     setNextPhase,
     registerAddr,
@@ -22,6 +24,10 @@ export function ChairOpsSection() {
     renameName,
     setRenameName,
   } = useVotingCtx();
+
+  // in normal mode, only chair can see chair ops
+  // in developer mode, always show
+  if (!devMode && !isChair) return null;
 
   const phase = snapshot.phase;
 
@@ -90,7 +96,7 @@ export function ChairOpsSection() {
         </button>
       </div>
 
-      {snapshot.supportsManage && (
+      {devMode && snapshot.supportsManage && (
         <div style={{ marginTop: 10, opacity: phase === 0 || phase === 1 ? 1 : 0.6 }}>
           <div style={{ marginBottom: 6 }}>
             <b>Proposals</b> (Initialization/Registration only)

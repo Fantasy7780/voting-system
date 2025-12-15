@@ -5,8 +5,31 @@ import { useVotingCtx } from '../VotingContext';
 import { isBytes32Hex } from '../utils';
 
 export function CommitSection() {
-  const { actions, selIndex, salt, setSalt, commitment, setCommitment } = useVotingCtx();
+  const { actions, selIndex, salt, setSalt, commitment, setCommitment, devMode, isChair } = useVotingCtx();
+  const isVoterNormal = !devMode && !isChair;
+  
+  if (!devMode && isChair) return null;
 
+  if (isVoterNormal) {
+  return (
+    <Section title="Vote">
+      <button
+        onClick={async () => {
+          // Ensure a salt exists without showing it.
+          actions.generateSalt();
+          await actions.commitVote(selIndex);
+        }}
+        disabled={actions.isPending || actions.isMining}
+      >
+        Commit vote
+      </button>
+      <div style={{ marginTop: 6, fontSize: 12, color: '#666' }}>
+        Salt is generated and stored locally.
+      </div>
+    </Section>
+    );
+  }
+  
   return (
     <Section title="Commit">
       <div style={{ marginTop: 6 }}>

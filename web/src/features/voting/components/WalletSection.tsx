@@ -1,22 +1,27 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import { Section } from './Section';
 import { useVotingCtx } from '../VotingContext';
 
 export function WalletSection() {
-  const { isConnected, address, chainId, connectors, connect, disconnect } = useVotingCtx();
-  const [mounted, setMounted] = useState(false);
+  const {
+    isConnected,
+    address,
+    chainId,
+    connectors,
+    connect,
+    disconnect,
+    devMode,
+    setDevMode,
+    snapshot,
+    isChair,
+  } = useVotingCtx();
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const roleLabel = snapshot.chairperson ? (isChair ? 'Chairperson' : 'Voter') : '-';
 
   return (
     <Section title="Wallet" topBorder="none">
-      {!mounted ? (
-        <div style={{ fontSize: 13, color: '#555' }}>Loading wallet…</div>
-      ) : isConnected ? (
+      {isConnected ? (
         <div>
           <div>
             {address} (chain {chainId})
@@ -30,6 +35,15 @@ export function WalletSection() {
           </button>
         ))
       )}
+
+      <div style={{ marginTop: 10 }}>
+        <div style={{ fontSize: 13, color: '#555' }}>
+          Role: {roleLabel} | Developer mode: {devMode ? 'ON' : 'OFF'}
+        </div>
+        <button onClick={() => setDevMode(!devMode)} style={{ marginTop: 6 }}>
+          {devMode ? 'Disable Developer Mode' : 'Enable Developer Mode'}
+        </button>
+      </div>
     </Section>
   );
 }

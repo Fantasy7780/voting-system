@@ -4,10 +4,13 @@ import { Section } from './Section';
 import { useVotingCtx } from '../VotingContext';
 
 export function ContractSection() {
-  const { addr, addrInput, setAddrInput, setAddrFromInput } = useVotingCtx();
+  const { isChair, devMode, addr, addrInput, setAddrInput, setAddrFromInput } = useVotingCtx();
+
+  if (!devMode && !isChair) return null;
 
   return (
     <Section title="Contract" topBorder="none">
+      {devMode && (
       <div style={{ marginTop: 6 }}>
         <input
           value={addrInput}
@@ -19,6 +22,7 @@ export function ContractSection() {
           Use address
         </button>
       </div>
+      )}
       <div style={{ marginTop: 6, fontSize: 13, color: '#555' }}>Active: {addr || '-'}</div>
     </Section>
   );

@@ -18,6 +18,11 @@ export interface VotingContextValue {
   connect: ReturnType<typeof useConnect>['connect'];
   disconnect: ReturnType<typeof useDisconnect>['disconnect'];
 
+  // role + mode
+  isChair: boolean;
+  devMode: boolean;
+  setDevMode: (v: boolean) => void;
+
   // contract
   addr?: Address;
   addrInput: string;
@@ -84,6 +89,22 @@ export function VotingProvider({ children }: { children: React.ReactNode }) {
   const { disconnect } = useDisconnect();
   const { address, chainId, isConnected } = useAccount();
 
+  const [devMode, setDevMode] = useState(false);
+
+  // persist developer mode locally
+  useEffect(() => {
+    try {
+      const v = localStorage.getItem('voting:devMode');
+      if (v === '1') setDevMode(true);
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('voting:devMode', devMode ? '1' : '0');
+    } catch {}
+  }, [devMode]);
+
   const [addr, setAddr] = useState<Address | undefined>(() =>
     isAddress(ENV_ADDR) ? (ENV_ADDR as Address) : undefined
   );
@@ -123,6 +144,14 @@ export function VotingProvider({ children }: { children: React.ReactNode }) {
     setAddr(addrInput as Address);
   };
 
+  // real role check by onchain chairperson
+  const isChair = useMemo(() => {
+    const chair = snapshot.chairperson;
+    const acc = address as Address | undefined;
+    if (!chair || !acc) return false;
+    return chair.toLowerCase() === acc.toLowerCase();
+  }, [snapshot.chairperson, address]);
+
   // restore salt/index/commitment from meta if present 
   useEffect(() => {
     if (!addr || !address) return;
@@ -146,6 +175,10 @@ export function VotingProvider({ children }: { children: React.ReactNode }) {
       connectors,
       connect,
       disconnect,
+
+      isChair,
+      devMode,
+      setDevMode,
 
       addr,
       addrInput,
@@ -202,6 +235,8 @@ export function VotingProvider({ children }: { children: React.ReactNode }) {
       connectors,
       connect,
       disconnect,
+      isChair,
+      devMode,
       addr,
       addrInput,
       newRoundText,
